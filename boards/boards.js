@@ -1,14 +1,5 @@
 window.BOARD_LIST=[
  {
-  "id": "amplifier",
-  "title": "Усилитель на LM386",
-  "subtitle": "Звуковой усилитель, регуляторы громкости и тембра",
-  "level": 3,
-  "parts": 31,
-  "nets": 20,
-  "pins": 71
- },
- {
   "id": "astable",
   "title": "Мультивибратор",
   "subtitle": "Два транзистора и мигающие светодиоды",
@@ -34,5 +25,14 @@ window.BOARD_LIST=[
   "parts": 14,
   "nets": 9,
   "pins": 31
+ },
+ {
+  "id": "amplifier",
+  "title": "Усилитель на LM386",
+  "subtitle": "Звуковой усилитель, регуляторы громкости и тембра",
+  "level": 3,
+  "parts": 31,
+  "nets": 20,
+  "pins": 71
  }
 ];

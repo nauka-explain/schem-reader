@@ -48,7 +48,8 @@
     [...real, ...pw].forEach((cm, i) => {
       const isP = cm.power; const start = cur; const dur = isP ? 0.28 : 0.45; cur += isP ? 0.1 : 0.22;
       const s = E.staticComp(cm); const g = document.createElementNS('http://www.w3.org/2000/svg', 'g'); g.setAttribute('class', 'acomp'); g.innerHTML = s.body + s.text; gC.appendChild(g);
-      const pins = s.pins.map((p) => { const pg = document.createElementNS('http://www.w3.org/2000/svg', 'g'); pg.setAttribute('class', 'pin'); pg.setAttribute('transform', `translate(${p.x} ${p.y})`); pg.innerHTML = `<circle class="pd" r="${isP ? 0.5 : 0.55}"/>`; pg.style.opacity = 0; gP.appendChild(pg); const o = { el: pg, n: 0 }; (pinAt[rk(p.x, p.y)] = pinAt[rk(p.x, p.y)] || []).push(o); pinPos[p.key] = p; return o; });
+      s.pins.forEach((p) => { pinPos[p.key] = p; });
+      const pins = [];
       items.comps.push({ cm, els: [g], pins, start, dur, p: -1 });
     });
     const compsEnd = cur + 0.5; cur = compsEnd;
@@ -61,7 +62,7 @@
       const L = plen(w.pts), dur = clamp(L / 70, 0.14, 0.55), start = cur; cur += dur * 0.8;
       const el = document.createElementNS('http://www.w3.org/2000/svg', 'polyline'); el.setAttribute('class', 'wire'); el.setAttribute('points', w.pts.map((q) => q.join(',')).join(' ')); el.setAttribute('pathLength', '1');
       el.style.strokeDasharray = '1 1'; el.style.strokeDashoffset = 1; el.style.visibility = 'hidden'; gW.appendChild(el);
-      const ends = [w.pts[0], w.pts[w.pts.length - 1]].map((q) => pinAt[rk(q[0], q[1])] || []).flat();
+      const ends = [];
       const keys = [w.pts[0], w.pts[w.pts.length - 1]].map((q) => Object.values(pinPos).filter((p) => rk(p.x, p.y) === rk(q[0], q[1])).map((p) => p.key)).flat();
       items.wires.push({ el, pts: w.pts, L, start, dur, ends, refs: [...new Set(keys.map(refOf).filter(Boolean))], net: w.n, p: -1, done: false });
     });

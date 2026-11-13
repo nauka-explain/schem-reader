@@ -13,7 +13,7 @@
       c.innerHTML = `<span class="ptag">${tag}</span>${icon}${kind === 'group' ? '<span class="cnt"></span>' : ''}`;
       root.appendChild(c); cards.push(c); bind(c); return c;
     };
-    E.groups().forEach((g) => add('group', g.lib, `${g.title}: ${g.refs[0]}–${g.refs[g.refs.length - 1]}`.replace(/(\w+)–\1$/, '$1'), E.symbolSvg(g.lib, 56), (g.refs[0].match(/[A-Za-z]+/) || [''])[0].slice(0, 3)));
+    E.groups().forEach((g) => add('group', g.lib, `${g.title}: ${E.dispRef(g.refs[0])}–${E.dispRef(g.refs[g.refs.length - 1])}`.replace(/(\w+)–\1$/, '$1'), E.symbolSvg(g.lib, 56), (E.dispRef(g.refs[0]).match(/[A-Za-z]+/) || [''])[0].slice(0, 3)));
     const sep = document.createElement('div'); sep.className = 'psep'; root.appendChild(sep);
     E.powers().forEach((pw) => add('power', pw.name, (pw.name === 'GND' ? 'Земля (GND)' : 'Питание ' + pw.name), E.symbolSvg(pw.lib, 56), ''));
     const trash = document.createElement('div'); trash.className = 'ptrash'; trash.innerHTML = '<svg class="ic"><use href="#i-trash"/></svg>'; root.appendChild(trash);

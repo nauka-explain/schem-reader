@@ -70,7 +70,9 @@ def tf(px, py, rot, mir):
 
 # ---- русские названия типов (для панели компонентов)
 def ru_title(lib, ref, val):
-    l = lib.lower(); p = re.search(r'[A-Za-z]+', ref).group(0).upper(); v = str(val)
+    l = lib.lower(); p = (re.search(r'[A-Za-z]+', ref) or re.search(r'.', ref)).group(0).upper(); v = str(val)
+    if 'screw_terminal' in l or 'terminalblock' in l: return 'Клеммник'
+    if 'heatsink' in l: return 'Радиатор'
     if p == 'RV' or 'potentiometer' in l or 'trimmer' in l: return 'Переменный резистор'
     if p == 'R': return 'Резистор'
     if p == 'C':
@@ -103,54 +105,95 @@ def build(path, bid, title, subtitle, level):
     juncs = [(round(f1(j, 'at')[1], 3), round(f1(j, 'at')[2], 3)) for j in find(t, 'junction')]
     labels = [(l[1], (round(f1(l, 'at')[1], 3), round(f1(l, 'at')[2], 3))) for k in ('label', 'global_label', 'hierarchical_label') for l in find(t, k)]
     # ---- связность
-    par = {}
-    def F(a):
-        par.setdefault(a, a)
-        while par[a] != a: par[a] = par[par[a]]; a = par[a]
-        return a
-    def U(a, b): par[F(a)] = F(b)
     def onseg(p, a, b, eps=0.01):
         if abs((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) > eps * max(1, math.hypot(b[0] - a[0], b[1] - a[1])): return False
         return min(a[0], b[0]) - eps <= p[0] <= max(a[0], b[0]) + eps and min(a[1], b[1]) - eps <= p[1] <= max(a[1], b[1]) + eps
-    segs = [(wi, a, b) for wi, w in enumerate(wires) for a, b in zip(w, w[1:])]
-    for wi in range(len(wires)): F(('w', wi))
-    for (w1, a1, b1), (w2, a2, b2) in itertools.combinations(segs, 2):
-        if w1 == w2: continue
-        if any(onseg(p, a2, b2) for p in (a1, b1)) or any(onseg(p, a1, b1) for p in (a2, b2)): U(('w', w1), ('w', w2))
-        for j in juncs:
-            if onseg(j, a1, b1) and onseg(j, a2, b2): U(('w', w1), ('w', w2))
+    close = lambda p, q: abs(p[0] - q[0]) < 0.01 and abs(p[1] - q[1]) < 0.01
     pinnodes = []
     for i in insts:
         pw = libs[i['lib']]['power']
         for p in libs[i['lib']]['pins']:
             dx, dy = tf(p['x'], p['y'], i['rot'], i['mir']); pos = (round(i['x'] + dx, 3), round(i['y'] + dy, 3))
-            pid = ('pw', i['ref']) if pw else ('p', i['ref'], p['u']); F(pid); pinnodes.append((i, p, pos, pid))
-    close = lambda p, q: abs(p[0] - q[0]) < 0.01 and abs(p[1] - q[1]) < 0.01
-    for i, p, pos, pid in pinnodes:
-        for wi, a, b in segs:
-            if onseg(pos, a, b): U(pid, ('w', wi))
-        for j, q, pos2, pid2 in pinnodes:
-            if pid2 != pid and close(pos, pos2): U(pid, pid2)
-    for k, (name, pos) in enumerate(labels):                      # сетевые метки: на проводе/выводе, одноимённые объединяются
-        node = ('lab', k); F(node); U(node, ('net', name))
-        for wi, a, b in segs:
-            if onseg(pos, a, b): U(node, ('w', wi))
-        for i, p, ppos, pid in pinnodes:
-            if close(pos, ppos): U(node, pid)
-    for i in insts:
-        if libs[i['lib']]['power']: U(('pw', i['ref']), ('net', i['val']))
-    nets = {}
-    for i, p, pos, pid in pinnodes:
-        if libs[i['lib']]['power']: continue
-        nets.setdefault(F(pid), []).append(f"{i['ref']}.{p['u']}")
-    named = {}
-    for n in list(par):
-        if isinstance(n, tuple) and n[0] == 'net': named[F(n)] = n[1]
+            pinnodes.append((i, p, pos, ('pw', i['ref']) if pw else ('p', i['ref'], p['u'])))
+
+    def connect(wl):
+        par = {}
+        def F(a):
+            par.setdefault(a, a)
+            while par[a] != a: par[a] = par[par[a]]; a = par[a]
+            return a
+        def U(a, b): par[F(a)] = F(b)
+        segs = [(wi, a, b) for wi, w in enumerate(wl) for a, b in zip(w, w[1:])]
+        for wi in range(len(wl)): F(('w', wi))
+        for (w1, a1, b1), (w2, a2, b2) in itertools.combinations(segs, 2):
+            if w1 == w2: continue
+            if any(onseg(p, a2, b2) for p in (a1, b1)) or any(onseg(p, a1, b1) for p in (a2, b2)): U(('w', w1), ('w', w2))
+            for j in juncs:
+                if onseg(j, a1, b1) and onseg(j, a2, b2): U(('w', w1), ('w', w2))
+        for i, p, pos, pid in pinnodes:
+            F(pid)
+            for wi, a, b in segs:
+                if onseg(pos, a, b): U(pid, ('w', wi))
+            for j, q, pos2, pid2 in pinnodes:
+                if pid2 != pid and close(pos, pos2): U(pid, pid2)
+        for k, (name, pos) in enumerate(labels):                  # сетевые метки: на проводе/выводе, одноимённые объединяются
+            node = ('lab', k); F(node); U(node, ('net', name))
+            for wi, a, b in segs:
+                if onseg(pos, a, b): U(node, ('w', wi))
+            for i, p, ppos, pid in pinnodes:
+                if close(pos, ppos): U(node, pid)
+        for i in insts:
+            if libs[i['lib']]['power']: U(('pw', i['ref']), ('net', i['val']))
+        nets = {}
+        for i, p, pos, pid in pinnodes:
+            if libs[i['lib']]['power']: continue
+            nets.setdefault(F(pid), []).append(f"{i['ref']}.{p['u']}")
+        named = {}
+        for n in list(par):
+            if isinstance(n, tuple) and n[0] == 'net': named[F(n)] = n[1]
+        return F, nets, named
+
+    F, nets, named = connect(wires)
+
+    # ---- «висячие» провода (например, ведущие к символам PWR_FLAG, которые не рисуются): подрезаем до последней точки соединения
+    pts_conn = [pos for i, p, pos, pid in pinnodes] + list(juncs) + [pos for _, pos in labels]
+    def prune(wl):
+        cur = {wi: [list(q) for q in w] for wi, w in enumerate(wl)}
+        changed = True
+        while changed:
+            changed = False
+            for wi in list(cur):
+                w = cur[wi]
+                if len(w) != 2: continue
+                a, b = w; others = [ow for oi, ow in cur.items() if oi != wi]
+                touch = lambda q: any(close(q, c) for c in pts_conn) or any(onseg(q, x, y) for ow in others for x, y in zip(ow, ow[1:]))
+                if touch(a) and touch(b) and True:
+                    continue
+                L2 = (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2 or 1
+                tp = lambda q: ((q[0] - a[0]) * (b[0] - a[0]) + (q[1] - a[1]) * (b[1] - a[1])) / L2
+                ts = []
+                if touch(a): ts.append(0.0)
+                if touch(b): ts.append(1.0)
+                cand = [c for c in pts_conn if onseg(c, a, b)] + [q for ow in others for q in (ow[0], ow[-1]) if onseg(q, a, b)]
+                ts += [tp(c) for c in cand if 0.005 < tp(c) < 0.995]
+                if len(set(round(t, 3) for t in ts)) < 2:
+                    del cur[wi]; changed = True; continue
+                t0, t1 = min(ts), max(ts)
+                na = [round(a[0] + (b[0] - a[0]) * t0, 3), round(a[1] + (b[1] - a[1]) * t0, 3)]; nb = [round(a[0] + (b[0] - a[0]) * t1, 3), round(a[1] + (b[1] - a[1]) * t1, 3)]
+                if na != a or nb != b: cur[wi] = [na, nb]; changed = True
+        return cur
+    pr = prune(wires); removed = len(wires) - len(pr)
+    F2, nets2, named2 = connect([pr[k] for k in sorted(pr)])
+    sig = lambda ns, nm, FF: {frozenset(v): nm.get(r) for r, v in ns.items()}
+    if sig(nets, named, F) != sig(nets2, named2, F2): raise SystemExit('Подрезка проводов изменила цепи: прервано.')
+    print(f'провода: удалено/подрезано висячих {removed} удалено, {sum(1 for k in pr if pr[k] != [list(q) for q in wires[k]])} подрезано')
     out = [dict(name=named.get(r), pins=sorted(p, key=lambda s: (re.sub(r'\d+', '', s.split('.')[0]), int(re.sub(r'\D', '', s.split('.')[0]) or 0), s))) for r, p in nets.items()]
     ridx = {r: k for k, r in enumerate(nets)}
     out_sorted = sorted(range(len(out)), key=lambda k: (out[k]['name'] is None, -len(out[k]['pins'])))
     rank = {k: n for n, k in enumerate(out_sorted)}; netlist = [out[k] for k in out_sorted]
-    wout = [dict(p=w, n=rank[ridx[F(('w', wi))]] if F(('w', wi)) in ridx else -1) for wi, w in enumerate(wires)]
+    wout = [dict(p=[tuple(q) for q in pr[wi]], n=rank[ridx[F(('w', wi))]] if F(('w', wi)) in ridx else -1) for wi in sorted(pr)]
+    juncs = [j for j in juncs if any(onseg(j, x, y) for wi in pr for x, y in zip(pr[wi], pr[wi][1:]))]
+
     # ---- данные для сайта
     used = {i['lib'] for i in insts}; L = {}
     first = {}

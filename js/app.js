@@ -17,7 +17,8 @@
   const partRu = (p) => { const m = PART_RU.find(([r]) => r.test(p || '')); return m ? m[1] : null; };
   const typeName = (ref, part) => partRu(part) || ((E.compInfo(ref) || (D && D.insts.find((i) => i.id === ref)) || {}).lib && D.libs[(E.compInfo(ref) || D.insts.find((i) => i.id === ref)).lib].title) || 'Компонент';
   const refOf = (k) => String(k).split('.')[0];
-  const pinLabel = (k) => String(k);
+  const pinLabel = (k) => E.dispKey(String(k));
+  const refName = (id) => (E.dispRef(id) === id ? id : `${E.dispRef(id)} (${id})`);
   const fmt = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
 
   /* ---------- подсказки-тултипы (иконки без подписей) ---------- */
@@ -69,10 +70,10 @@
     $('#stSelN').textContent = [info.comps.length && `${info.comps.length} комп.`, info.edges && `${info.edges} пров.`, info.nodes && `${info.nodes} уз.`].filter(Boolean).join(' · ');
     const ins = $('#inspector'); const c = info.comps.length === 1 && !info.edges && !info.nodes ? E.compInfo(info.comps[0]) : null;
     if (c && !c.power) {
-      ins.hidden = false; const sel = $('#desSel'); sel.innerHTML = E.designators(c.id).map((d) => `<option value="${d.ref}"${d.ref === c.id ? ' selected' : ''}>${d.ref}${d.used ? ' ✓' : ''} · ${d.val}</option>`).join(''); $('#desVal').textContent = '';
+      ins.hidden = false; const sel = $('#desSel'); sel.innerHTML = E.designators(c.id).map((d) => `<option value="${d.ref}"${d.ref === c.id ? ' selected' : ''}>${d.disp}${d.disp !== d.ref ? ' (' + d.ref + ')' : ''}${d.used ? ' ✓' : ''} · ${d.val}</option>`).join(''); $('#desVal').textContent = '';
     } else ins.hidden = true;
-    if (mode === 'train' && c && !c.power && V.has && V.has(c.id)) { V.focus([c.id], true); const card = $('#card3d'); card.hidden = false; card.innerHTML = `<b>${c.id}</b> · ${typeName(c.id, V.partOf(c.id))}`; }
-    else if (mode === 'train' && c && !c.power) { const card = $('#card3d'); card.hidden = false; card.innerHTML = `<b>${c.id}</b> · для этого элемента нет 3D-модели, на плате видны только его площадки.`; }
+    if (mode === 'train' && c && !c.power && V.has && V.has(c.id)) { V.focus([c.id], true); const card = $('#card3d'); card.hidden = false; card.innerHTML = `<b>${refName(c.id)}</b> · ${typeName(c.id, V.partOf(c.id))}`; }
+    else if (mode === 'train' && c && !c.power) { const card = $('#card3d'); card.hidden = false; card.innerHTML = `<b>${refName(c.id)}</b> · для этого элемента нет 3D-модели, на плате видны только его площадки.`; }
   };
   $('#desSel').onchange = (e) => { if (selId) E.setDesignator(selId, e.target.value); e.target.blur(); };
 
@@ -93,7 +94,7 @@
     let h = `<div class="score ${cls}"><span class="big">${st.score}%</span><div class="kv" style="flex:1"><span>Верных соединений</span><b>${st.correct} из ${st.required}</b><span>Пропущено</span><b>${st.missing}</b><span>Лишних замыканий</span><b>${st.wrong}</b><span>Время · подсказки · проверки</span><b>${fmt(secs)} · ${hints} · ${checks}</b></div></div>`;
     h += `<div class="legend"><span><i style="border-color:#e5383b"></i>лишнее / неверное</span><span><i style="border-color:#f08c00;border-top-style:dashed"></i>не соединено</span><span><i style="border-color:#1a9b45"></i>верно</span></div>`;
     if (st.perfect) h += `<div class="issue good">Все соединения (${st.required}) совпадают с эталонной схемой, лишних связей нет.</div>`;
-    if (un.length) h += `<div class="issue miss" style="cursor:default"><b>Не размещены на схеме (${un.length}):</b><small><code>${list(un, 14)}</code></small></div>`;
+    if (un.length) h += `<div class="issue miss" style="cursor:default"><b>Не размещены на схеме (${un.length}):</b><small><code>${list(un.map((r) => E.dispRef(r)), 14)}</code></small></div>`;
     if (res.shorts.length) {
       h += '<h3>Лишние соединения (красные провода)</h3>';
       res.shorts.forEach((s, i) => { h += `<div class="issue bad" data-short="${i}"><b>Замкнуты разные цепи:</b>` + s.groups.map((g) => `<small><code>${g.net}</code>: ${list(g.pins.map(pinLabel).concat(g.power.map((p) => 'символ ' + p)))}</small>`).join('') + '</div>'; });
@@ -123,9 +124,9 @@
   function hint() {
     if (!E.graph().pins.length) { toast('Начните с размещения компонентов из панели.'); return; }
     const res = runCheck(), cand = res.missing.filter((m) => !m.unplaced);
-    if (!cand.length) { const n = unplacedRefs().length; toast(n ? `Размещено не всё: осталось ${n} компонентов (${list(unplacedRefs(), 5)}).` : res.stats.wrong ? 'Недостающих связей нет, но есть лишние. Нажмите «Проверить».' : 'Все соединения уже на месте.'); return; }
+    if (!cand.length) { const n = unplacedRefs().length; toast(n ? `Размещено не всё: осталось ${n} компонентов (${list(unplacedRefs().map((r) => E.dispRef(r)), 5)}).` : res.stats.wrong ? 'Недостающих связей нет, но есть лишние. Нажмите «Проверить».' : 'Все соединения уже на месте.'); return; }
     const m = cand[Math.floor(Math.random() * cand.length)]; hints++; E.setHint(m); E.focusPins([m.a, m.b]);
-    const refs = [refOf(m.a), refOf(m.b)]; E.flashComps(refs); V.focus(refs, true); toast(`Подсказка: соедините ${m.a} и ${m.b}`); save();
+    const refs = [refOf(m.a), refOf(m.b)]; E.flashComps(refs); V.focus(refs, true); toast(`Подсказка: соедините ${pinLabel(m.a)} и ${pinLabel(m.b)}`); save();
   }
 
   /* ---------- 3D ---------- */
@@ -139,25 +140,42 @@
     if (!p) { card.hidden = true; V.focus([]); E.flashComps([]); return; }
     V.focus([p.ref]); card.hidden = false;
     if (mode === 'train') {
-      card.innerHTML = `<b>${p.ref}</b> · ${typeName(p.ref, p.part)}`;
+      card.innerHTML = `<b>${refName(p.ref)}</b> · ${typeName(p.ref, p.part)}`;
       if (E.isPlaced(p.ref)) { E.selectComp(p.ref); E.focusComps([p.ref]); E.flashComps([p.ref]); } else toast(`${p.ref} ещё не на схеме: перетащите «${typeName(p.ref, p.part).toLowerCase()}» из панели.`);
     } else card.innerHTML = `${typeName(p.ref, p.part)}<br><small>Определите по шелкографии, какой это элемент схемы.</small>`;
   }
   E.onHover = (o, ev) => {
     const t = $('#pinTip'); if (!o) { t.hidden = true; return; }
     const r = $('#schHost').getBoundingClientRect(); t.hidden = false; t.style.left = ev.clientX - r.left + 14 + 'px'; t.style.top = ev.clientY - r.top + 14 + 'px';
-    if (o.num !== undefined) t.textContent = o.comp.power ? o.comp.val : `${o.comp.id} · вывод ${o.num}${o.name && o.name !== '~' && o.name !== o.num ? ' (' + o.name + ')' : ''}`;
-    else t.textContent = `${o.comp.id}${o.comp.power ? '' : ' · ' + o.comp.val}`;
+    if (o.num !== undefined) t.textContent = o.comp.power ? o.comp.val : `${E.dispRef(o.comp.id)} · вывод ${o.num}${o.name && o.name !== '~' && o.name !== o.num ? ' (' + o.name + ')' : ''}`;
+    else t.textContent = `${E.dispRef(o.comp.id)}${o.comp.power ? '' : ' · ' + o.comp.val}`;
   };
 
   /* ---------- разделитель ---------- */
   function bindSplit() {
-    const g = $('#gutter'), s = $('#split'); let on = false;
+    const g = $('#gutter'), s = $('#split'); let on = false; const vert = () => s.classList.contains('vertical');
+    const apply = (frac) => { s.style.setProperty(vert() ? '--top' : '--left', Math.max(25, Math.min(72, frac)) + '%'); V.resize(); };
     g.addEventListener('pointerdown', (e) => { on = true; g.setPointerCapture(e.pointerId); });
-    g.addEventListener('pointermove', (e) => { if (!on) return; const r = s.getBoundingClientRect(); s.style.setProperty('--left', Math.max(25, Math.min(70, ((e.clientX - r.left) / r.width) * 100)) + '%'); V.resize(); });
-    g.addEventListener('pointerup', () => { on = false; });
-    g.addEventListener('keydown', (e) => { const cur = parseFloat(getComputedStyle(s).getPropertyValue('--left')) || 44; if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { s.style.setProperty('--left', cur + (e.key === 'ArrowLeft' ? -3 : 3) + '%'); V.resize(); } });
+    g.addEventListener('pointermove', (e) => { if (!on) return; const r = s.getBoundingClientRect(); apply(vert() ? ((e.clientY - r.top) / r.height) * 100 : ((e.clientX - r.left) / r.width) * 100); });
+    g.addEventListener('pointerup', () => { on = false; E.fit(); });
+    g.addEventListener('keydown', (e) => {
+      const k = vert() ? ['ArrowUp', 'ArrowDown'] : ['ArrowLeft', 'ArrowRight']; if (!k.includes(e.key)) return;
+      const cur = parseFloat(getComputedStyle(s).getPropertyValue(vert() ? '--top' : '--left')) || (vert() ? 46 : 44); apply(cur + (e.key === k[0] ? -3 : 3)); E.fit();
+    });
   }
+  /* расположение окон: рядом (h) или друг под другом (v) */
+  function setLayout(l) {
+    const s = $('#split'); s.classList.toggle('vertical', l === 'v'); $('#gutter').setAttribute('aria-orientation', l === 'v' ? 'horizontal' : 'vertical');
+    const b = $('#btnLayout'); b.dataset.tip = l === 'v' ? 'Окна рядом' : 'Окна друг под другом'; b.querySelector('use').setAttribute('href', l === 'v' ? '#i-lay-h' : '#i-lay-v');
+    try { localStorage.setItem('pcbsim:layout', l); } catch (e) { }
+    V.resize(); requestAnimationFrame(() => { V.resize(); V.setView && V.setView('iso', true); E.fit(); });
+  }
+  /* система обозначений: МЭК/KiCad или ГОСТ */
+  E.onNotation = (n) => {
+    $('#bGost').classList.toggle('on', n === 'gost'); window.Anim.close();
+    if (D) { P.init($('#palette')); E.refreshSel(); status(); }
+    try { localStorage.setItem('pcbsim:notation', n); } catch (e) { }
+  };
 
   /* после щелчка мышью кнопка не должна «держать» фокус: иначе пробел/Enter нажмут её ещё раз */
   document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('button'); if (b && e.detail > 0 && !b.closest('dialog')) b.blur(); });
@@ -200,7 +218,7 @@
     E.init($('#schHost'));
     document.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => setMode(b.dataset.mode)));
     document.querySelectorAll('.toolbar [data-tool]').forEach((b) => (b.onclick = () => E.setTool(b.dataset.tool)));
-    $('#bRot').onclick = E.rotate; $('#bMir').onclick = E.mirror; $('#bDel').onclick = E.deleteSelected; $('#bUndo').onclick = E.undo; $('#bRedo').onclick = E.redo; $('#bFit').onclick = E.fit;
+    $('#bRot').onclick = E.rotate; $('#bMir').onclick = E.mirror; $('#bMirV').onclick = E.mirrorV; $('#bDel').onclick = E.deleteSelected; $('#bUndo').onclick = E.undo; $('#bRedo').onclick = E.redo; $('#bFit').onclick = E.fit;
     $('#ratsToggle').onclick = (e) => { const b = e.currentTarget; b.classList.toggle('on'); E.setRatsnest(b.classList.contains('on')); };
     $('#bAnim').onclick = () => {
       if (window.Anim.isOpen()) { window.Anim.close(); return; }
@@ -218,9 +236,12 @@
     window.addEventListener('beforeunload', saveNow);
     bind3D(); bindSplit(); V.init($('#view3d'), $('#tags3d'), { onPick: onPick3D });
     window.addEventListener('resize', () => E.fit());
-    let last = 'amplifier'; try { last = localStorage.getItem('pcbsim:last') || last; } catch (e) { }
-    if (!window.BOARD_LIST.some((b) => b.id === last)) last = window.BOARD_LIST[0].id;
-    openBoard(last);
+    $('#bGost').onclick = () => E.setNotation(E.notation() === 'gost' ? 'iec' : 'gost');
+    $('#btnLayout').onclick = () => setLayout($('#split').classList.contains('vertical') ? 'h' : 'v');
+    let lay = innerWidth < 900 ? 'v' : 'h', nt = 'iec'; try { lay = localStorage.getItem('pcbsim:layout') || lay; nt = localStorage.getItem('pcbsim:notation') || nt; } catch (e) { }
+    setLayout(lay); E.setNotation(nt);
+    window.BOARD_LIST.sort((x, y) => x.parts - y.parts || x.level - y.level);          // от простых плат к сложным
+    openBoard(window.BOARD_LIST[0].id);                                                // по умолчанию самая простая
   }
   boot();
 })();

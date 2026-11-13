@@ -124,7 +124,7 @@
   };
 
   V.setView = function (name, instant) {
-    const D = boardSize * 2.1, t = boardCenter.clone(); t.z = 1.6;
+    const D = boardSize * (camera.aspect > 1.25 ? 1.55 : 2.1), t = boardCenter.clone(); t.z = 1.6;
     let p;
     if (name === 'top') p = new THREE.Vector3(0, -0.02 * D, D);
     else if (name === 'bottom') p = new THREE.Vector3(0, -0.02 * D, -D);

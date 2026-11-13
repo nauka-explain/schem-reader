@@ -18,10 +18,10 @@
   const natural = (a, b) => a.localeCompare(b, 'en', { numeric: true });
 
   /* ---------- справочники (зависят от выбранной платы) ---------- */
-  let INST = {}, GROUPS = [];
+  let INST = {}, GROUPS = [], notation = 'iec', gostRefs = {}, symCache = {};
   E.data = () => D;
   E.setData = (data) => {
-    D = data; bbCache = {}; INST = {}; D.insts.forEach((i) => (INST[i.id] = i));
+    D = data; bbCache = {}; symCache = {}; gostRefs = window.Gost.refMap(D); INST = {}; D.insts.forEach((i) => (INST[i.id] = i));
     const m = new Map();
     D.insts.filter((i) => !i.power).forEach((i) => { if (!m.has(i.lib)) m.set(i.lib, { lib: i.lib, refs: [], title: (D.libs[i.lib] && D.libs[i.lib].title) || i.lib, order: (D.libs[i.lib] && D.libs[i.lib].order) || 99 }); m.get(i.lib).refs.push(i.id); });
     m.forEach((g) => g.refs.sort(natural));
@@ -39,14 +39,25 @@
     const a = (rot * Math.PI) / 180, c = Math.round(Math.cos(a) * 1e6) / 1e6, s = Math.round(Math.sin(a) * 1e6) / 1e6;
     return [px * c + py * s, -px * s + py * c];
   }
+  /* графика и выводы символа в выбранной системе обозначений (МЭК/KiCad или ГОСТ) */
+  function sym(lib) {
+    const key = notation + '|' + lib; if (symCache[key]) return symCache[key];
+    const L = D.libs[lib]; const o = notation === 'gost' && !L.power ? window.Gost.symbol(lib, L) : null;
+    return (symCache[key] = { g: (o && o.g) || L.g, pins: (o && o.pins) || L.pins, hn: !!(o && o.hn) });
+  }
+  const dashAttr = (g) => (g.dash ? ` stroke-dasharray="${g.dash}"` : '');
+  E.notation = () => notation;
+  E.setNotation = (n) => { notation = n === 'gost' ? 'gost' : 'iec'; bbCache = {}; symCache = {}; if (D) { rebuildPins(); render(); } E.onNotation && E.onNotation(notation); };
+  E.dispRef = (id) => (notation === 'gost' && gostRefs[id]) || id;
+  E.dispKey = (key) => { const i = String(key).indexOf('.'); if (i < 0) return key; return E.dispRef(key.slice(0, i)) + key.slice(i); };
   function libBBox(lib) {
-    if (bbCache[lib]) return bbCache[lib];
-    const L = D.libs[lib]; let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    const ck = notation + '|' + lib; if (bbCache[ck]) return bbCache[ck];
+    const L = sym(lib); let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     const ext = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
     L.g.forEach((g) => { if (g.t === 'circle') { ext(g.cx - g.r, g.cy - g.r); ext(g.cx + g.r, g.cy + g.r); } else { const m = g.d.match(/-?\d+\.?\d*/g) || []; for (let i = 0; i + 1 < m.length; i += 2) ext(+m[i], +m[i + 1]); } });
     L.pins.forEach((p) => ext(p.x, p.y));
     if (x0 > x1) { x0 = -2; x1 = 2; y0 = -2; y1 = 2; }
-    return (bbCache[lib] = { x: x0 - 1, y: y0 - 1, w: x1 - x0 + 2, h: y1 - y0 + 2 });
+    return (bbCache[ck] = { x: x0 - 1, y: y0 - 1, w: x1 - x0 + 2, h: y1 - y0 + 2 });
   }
   function compBox(c) {
     const b = libBBox(c.lib); let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
@@ -55,8 +66,8 @@
   }
   /* иконка символа для палитры */
   E.symbolSvg = (lib, px) => {
-    const L = D.libs[lib], b = libBBox(lib); let s = `<svg class="symicon" viewBox="${b.x} ${b.y} ${b.w} ${b.h}" width="${px || 56}" height="${px || 56}" preserveAspectRatio="xMidYMid meet">`;
-    L.g.forEach((g) => { const fill = g.fill === 'background' ? COL.fill : g.fill === 'outline' ? COL.body : 'none'; s += g.t === 'circle' ? `<circle cx="${g.cx}" cy="${g.cy}" r="${g.r}" fill="${fill}"/>` : `<path d="${g.d}" fill="${fill}"/>`; });
+    const L = sym(lib), b = libBBox(lib); let s = `<svg class="symicon" viewBox="${b.x} ${b.y} ${b.w} ${b.h}" width="${px || 56}" height="${px || 56}" preserveAspectRatio="xMidYMid meet">`;
+    L.g.forEach((g) => { const fill = g.fill === 'background' ? COL.fill : g.fill === 'outline' ? COL.body : 'none'; s += g.t === 'circle' ? `<circle cx="${g.cx}" cy="${g.cy}" r="${g.r}" fill="${fill}"/>` : `<path d="${g.d}" fill="${fill}"${dashAttr(g)}/>`; });
     L.pins.forEach((p) => { if (p.l > 0) { const r = (p.r * Math.PI) / 180; s += `<line x1="${p.x}" y1="${p.y}" x2="${p.x + Math.cos(r) * p.l}" y2="${p.y - Math.sin(r) * p.l}"/>`; } });
     return s + '</svg>';
   };
@@ -75,7 +86,7 @@
 
   /* ---------- выводы ---------- */
   function pinsOf(c) {
-    const L = D.libs[c.lib];
+    const L = sym(c.lib);
     return L.pins.map((p) => {
       const [wx, wy] = tf(p.x, p.y, c.rot, c.mir);
       const r = (p.r * Math.PI) / 180; const [dx, dy] = tf(Math.cos(r), -Math.sin(r), c.rot, c.mir);
@@ -138,14 +149,15 @@
     const b = compBox(cm), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
     const T = (x, y, txt, cl, an, bl) => `<text class="${cl}" x="${f2(x)}" y="${f2(y)}" text-anchor="${an}" dominant-baseline="${bl}">${esc(txt)}</text>`;
     if (cm.power) { const p = pinsOf(cm)[0]; return p.oy < 0 ? T(cx, b.y1 + 0.2, cm.val, 'tval', 'middle', 'hanging') : T(cx, b.y0 - 0.2, cm.val, 'tval', 'middle', 'auto'); }
-    if (b.y1 - b.y0 > (b.x1 - b.x0) * 1.15) return T(b.x1 + 0.3, cy - 0.95, cm.id, 'tref', 'start', 'central') + T(b.x1 + 0.3, cy + 1.0, cm.val, 'tval', 'start', 'central');
-    return T(cx, b.y0 - 0.25, cm.id, 'tref', 'middle', 'auto') + T(cx, b.y1 + 0.25, cm.val, 'tval', 'middle', 'hanging');
+    const nm = E.dispRef(cm.id);
+    if (b.y1 - b.y0 > (b.x1 - b.x0) * 1.15) return T(b.x1 + 0.3, cy - 0.95, nm, 'tref', 'start', 'central') + T(b.x1 + 0.3, cy + 1.0, cm.val, 'tval', 'start', 'central');
+    return T(cx, b.y0 - 0.25, nm, 'tref', 'middle', 'auto') + T(cx, b.y1 + 0.25, cm.val, 'tval', 'middle', 'hanging');
   }
   function compGroup(cm, cls, hit) {
-    const L = D.libs[cm.lib], bb = libBBox(cm.lib), sx = cm.mir === 'y' ? -1 : 1, sy = cm.mir === 'x' ? -1 : 1; let c = '';
+    const L = sym(cm.lib), bb = libBBox(cm.lib), sx = cm.mir === 'y' ? -1 : 1, sy = cm.mir === 'x' ? -1 : 1; let c = '';
     c += `<g class="${cls}" ${hit ? `data-kind="comp" data-id="${esc(cm.id)}"` : ''} transform="translate(${f2(cm.x)} ${f2(cm.y)}) rotate(${-cm.rot}) scale(${sx} ${sy})">`;
     if (!cm.power && hit) c += `<rect class="bodyhit" x="${bb.x}" y="${bb.y}" width="${bb.w}" height="${bb.h}"/>`;
-    L.g.forEach((g) => { const fill = g.fill === 'background' ? COL.fill : g.fill === 'outline' ? COL.body : 'none'; c += g.t === 'circle' ? `<circle cx="${g.cx}" cy="${g.cy}" r="${g.r}" fill="${fill}"/>` : `<path d="${g.d}" fill="${fill}"/>`; });
+    L.g.forEach((g) => { const fill = g.fill === 'background' ? COL.fill : g.fill === 'outline' ? COL.body : 'none'; c += g.t === 'circle' ? `<circle cx="${g.cx}" cy="${g.cy}" r="${g.r}" fill="${fill}"/>` : `<path d="${g.d}" fill="${fill}"${dashAttr(g)}/>`; });
     L.pins.forEach((p) => { if (p.l > 0) { const r = (p.r * Math.PI) / 180; c += `<line class="pinline" x1="${p.x}" y1="${p.y}" x2="${f2(p.x + Math.cos(r) * p.l)}" y2="${f2(p.y - Math.sin(r) * p.l)}"/>`; } });
     return c + '</g>';
   }
@@ -155,7 +167,7 @@
       if (!cm.power && p.len > 1.5) {
         const mx = (p.x + p.bx) / 2, my = (p.y + p.by) / 2;
         if (!L.hu) t += p.ox ? `<text class="tpin" x="${f2(mx)}" y="${f2(my - 0.55)}" text-anchor="middle">${esc(p.num)}</text>` : `<text class="tpin" x="${f2(mx - 0.55)}" y="${f2(my)}" text-anchor="end" dominant-baseline="central">${esc(p.num)}</text>`;
-        if (!L.hn && p.name && p.name !== '~' && p.name !== p.num) { const dx = -p.ox; t += `<text class="tname" x="${f2(p.bx + dx * 0.7)}" y="${f2(p.by - p.oy * 0.7)}" text-anchor="${dx > 0 ? 'start' : dx < 0 ? 'end' : 'middle'}" dominant-baseline="central">${esc(p.name)}</text>`; }
+        if (!L.hn && !sym(cm.lib).hn && p.name && p.name !== '~' && p.name !== p.num) { const dx = -p.ox; t += `<text class="tname" x="${f2(p.bx + dx * 0.7)}" y="${f2(p.by - p.oy * 0.7)}" text-anchor="${dx > 0 ? 'start' : dx < 0 ? 'end' : 'middle'}" dominant-baseline="central">${esc(p.name)}</text>`; }
       }
     });
     return t;
@@ -185,7 +197,7 @@
       pinsOf(cm).forEach((p) => {
         const d = deg[p.key] || 0, bad = result && result.badPins && result.badPins.has(p.key), miss = result && result.missPins && result.missPins.has(p.key);
         const hot = hovNet !== null && nets(p.key) === hovNet, hn = hint && (hint.a === p.key || hint.b === p.key);
-        pn += `<g class="pin${d ? ' on' : ''}${bad ? ' bad' : ''}${miss ? ' miss' : ''}${hot ? ' hot' : ''}${hn ? ' hint' : ''}" transform="translate(${p.x} ${p.y})"><circle class="pd" r="${cm.power ? 0.5 : 0.55}"/>${miss || bad || hn ? '<circle class="ring" r="1.6"/>' : ''}<circle class="phit" data-kind="pin" data-key="${esc(p.key)}" r="1.25"/></g>`;
+        pn += `<g class="pin${d ? ' on' : ''}${d >= 2 ? ' junc' : ''}${bad ? ' bad' : ''}${miss ? ' miss' : ''}${hot ? ' hot' : ''}${hn ? ' hint' : ''}" transform="translate(${p.x} ${p.y})"><circle class="pd" r="${cm.power ? 0.5 : 0.55}"/>${miss || bad || hn ? '<circle class="ring" r="1.6"/>' : ''}<circle class="phit" data-kind="pin" data-key="${esc(p.key)}" r="1.25"/></g>`;
       });
     });
     S.nodes.forEach((n) => {
@@ -240,7 +252,7 @@
   };
   function centerWorld() { const r = svg.getBoundingClientRect(); const jitter = () => (Math.random() - 0.5) * 20; return toWorld(r.left + r.width / 2 + jitter(), r.top + r.height / 2 + jitter()); }
   /* смена позиционного обозначения (внутри группы одинаковых символов) */
-  E.designators = (id) => { const c = S.comps.find((q) => q.id === id); if (!c || c.power) return []; return GROUPS.find((g) => g.lib === c.lib).refs.map((r) => ({ ref: r, val: INST[r].val, used: S.comps.some((q) => q.id === r && q.id !== id) })); };
+  E.designators = (id) => { const c = S.comps.find((q) => q.id === id); if (!c || c.power) return []; return GROUPS.find((g) => g.lib === c.lib).refs.map((r) => ({ ref: r, val: INST[r].val, used: S.comps.some((q) => q.id === r && q.id !== id), disp: E.dispRef(r) })); };
   E.setDesignator = (id, ref) => {
     const c = S.comps.find((q) => q.id === id), other = S.comps.find((q) => q.id === ref); if (!c || c.power || id === ref || INST[ref].lib !== c.lib) return;
     push(); const map = { [id]: ref }; if (other) map[ref] = id;
@@ -263,7 +275,10 @@
     removeComps([...sel.comp]); sel = { comp: new Set(), edge: new Set(), node: new Set() }; changed();
   };
   E.rotate = () => { if (!sel.comp.size) return; push(); S.comps.forEach((c) => { if (sel.comp.has(c.id)) c.rot = (c.rot + 90) % 360; }); changed(); };
-  E.mirror = () => { if (!sel.comp.size) return; push(); S.comps.forEach((c) => { if (sel.comp.has(c.id)) c.mir = c.mir === 'y' ? null : 'y'; }); changed(); };
+  /* Отражение в экранных осях. Любое сочетание поворота и зеркала хранится как «зеркало + угол»:
+     слева направо:  зеркало меняется, угол → −угол;   сверху вниз:  зеркало меняется, угол → 180° − угол */
+  E.mirror = () => { if (!sel.comp.size) return; push(); S.comps.forEach((c) => { if (sel.comp.has(c.id)) { c.mir = c.mir === 'y' ? null : 'y'; c.rot = (360 - c.rot) % 360; } }); changed(); };
+  E.mirrorV = () => { if (!sel.comp.size) return; push(); S.comps.forEach((c) => { if (sel.comp.has(c.id)) { c.mir = c.mir === 'y' ? null : 'y'; c.rot = (((180 - c.rot) % 360) + 360) % 360; } }); changed(); };
   E.selectAll = () => setSel({ comp: S.comps.map((c) => c.id), edge: S.edges.map((e) => e.id), node: S.nodes.map((n) => n.id) });
 
   /* ---------- провода ---------- */
@@ -481,7 +496,7 @@
     if (c === 'Escape') { if (drawing) cancelWire(); else setSel({}); }
     else if (c === 'Enter' || c === 'NumpadEnter') finishWire();
     else if (c === 'Delete' || c === 'Backspace') { e.preventDefault(); if (drawing) stepBack(); else E.deleteSelected(); }
-    else if (c === 'KeyR') E.rotate(); else if (c === 'KeyX') E.mirror();
+    else if (c === 'KeyR') E.rotate(); else if (c === 'KeyX') E.mirror(); else if (c === 'KeyY') E.mirrorV();
     else if (c === 'KeyW') E.setTool('wire'); else if (c === 'KeyV') E.setTool('select'); else if (c === 'KeyF') E.fit();
   }
 
@@ -498,6 +513,7 @@
     const k = Math.max(view.k, Math.min(r.width / (x1 - x0 + 40), r.height / (y1 - y0 + 40), 9)); view.k = k; view.x = r.width / 2 - ((x0 + x1) / 2) * k; view.y = r.height / 2 - ((y0 + y1) / 2) * k; applyView();
   };
   E.isDrawing = () => !!drawing;
+  E.refreshSel = () => emitSel();
   E.selectComp = (id) => setSel(id ? { comp: [id] } : {});
   E.focusPins = (keys) => E.focusComps(keys.map((k) => (pinMap[k] ? pinMap[k].comp.id : null)).filter(Boolean));
   E.compInfo = (id) => S.comps.find((c) => c.id === id);
